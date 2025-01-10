@@ -1,12 +1,18 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Plantilla para crear una instancia EC2 en Amazon Web Services
 
+Parameters:
+  ImageId:
+    Type: String
+    Default: ami-05576a079321f21f8  # Valor por defecto
+    Description: "El ID de la AMI para la instancia EC2"
+
 Resources:
   MyEC2Instance:
     Type: 'AWS::EC2::Instance'
     Properties:
-      InstanceType: 't3.medium'
-      ImageId: 'ami-0e2c8caa4b6378d8c'
+      InstanceType: 't3.micro'
+      ImageId: !Ref ImageId
       SecurityGroupIds:
         - !Ref MySecurityGroup
 
