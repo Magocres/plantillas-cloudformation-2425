@@ -7,14 +7,3 @@ Resources:
     Properties:
       InstanceType: 't3.medium'
       ImageId: 'ami-0c02fb55956c7d316' # Reemplaza con la ID de la AMI de tu preferencia
-      KeyName: 'vockey' # Reemplaza con el nombre de tu par de claves
-      SecurityGroups:
-        - 'default' # Reemplaza con tu grupo de seguridad si es necesario
-      Tags:
-        - Key: 'Name'
-          Value: 'MiInstanciaEC2'
-      
-Outputs:
-  InstanceID:
-    Description: 'ID de la instancia EC2'
-    Value: !Ref MyEC2Instance
