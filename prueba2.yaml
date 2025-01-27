@@ -23,18 +23,6 @@ Resources:
         - Key: "Name"
           Value: "MiVPC"
 
-  InternetGateway:
-    Type: "AWS::EC2::InternetGateway"
-    Properties:
-      Tags:
-        - Key: "Name"
-          Value: "MiIGW"
-
-  GatewayAttachment:
-    Type: "AWS::EC2::VPCGatewayAttachment"
-    Properties:
-      VpcId: !Ref VPC
-      InternetGatewayId: !Ref InternetGateway
 
   PublicSubnet:
     Type: "AWS::EC2::Subnet"
@@ -47,26 +35,16 @@ Resources:
         - Key: "Name"
           Value: "MiPublicSubnet"
 
-  RouteTable:
-    Type: "AWS::EC2::RouteTable"
+  PrivateSubnet:
+    Type: "AWS::EC2::Subnet"
     Properties:
       VpcId: !Ref VPC
+      CidrBlock: "11.0.1.0/24"
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 0, !GetAZs ]
       Tags:
         - Key: "Name"
-          Value: "PublicRouteTable"
-
-  Route:
-    Type: "AWS::EC2::Route"
-    Properties:
-      RouteTableId: !Ref RouteTable
-      DestinationCidrBlock: "0.0.0.0/0"
-      GatewayId: !Ref InternetGateway
-
-  SubnetRouteTableAssociation:
-    Type: "AWS::EC2::SubnetRouteTableAssociation"
-    Properties:
-      SubnetId: !Ref PublicSubnet
-      RouteTableId: !Ref RouteTable
+          Value: "MiPrivateSubnet"
 
   MySecurityGroup:
     Type: "AWS::EC2::SecurityGroup"
@@ -83,7 +61,7 @@ Resources:
           ToPort: 80
           CidrIp: "0.0.0.0/0"
 
-  EC2Instance:
+  PublicEC2Instance:
     Type: "AWS::EC2::Instance"
     Properties:
       InstanceType: "t2.micro"
@@ -92,3 +70,85 @@ Resources:
       SecurityGroupIds:
         - !Ref MySecurityGroup
       SubnetId: !Ref PublicSubnet
+
+  PrivateEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      InstanceType: "t2.micro"
+      KeyName: "vockey"
+      ImageId: !Ref ImageId
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      SubnetId: !Ref PrivateSubnet
+
+  MyInternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: "Name"
+          Value: "MiIGW"
+
+  GatewayAttachment:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref MyInternetGateway
+
+  MyElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+
+  NatGateway:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt MyElasticIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+
+  NatGatewayAttachment:
+    Type: "AWS::EC2::EIP"
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: VPC
+
+  PublicSubnetRouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetRouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  PublicRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "PublicRouteTable"
+
+  PrivateRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "PrivateRouteTable"
+
+  PublicRoute1:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref MyInternetGateway
+
+  PrivateRoute1:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
