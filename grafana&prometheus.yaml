@@ -1,0 +1,334 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Part 3 - Add Prometheus monitoring with CloudFormation
+
+Parameters:
+  ImageId:
+    Type: String
+    Default: "ami-0c02fb55956c7d316"
+    Description: "ID de la imagen AMI para la instancia EC2"
+    AllowedValues:
+      - "ami-0c02fb55956c7d316" # Amazon Linux 2
+      - "ami-0d8f6eb4f641ef691" # Ubuntu Server 20.04 LTS
+      - "ami-0a91cd140a1fc148a" # Red Hat Enterprise Linux 8
+    ConstraintDescription: "Debe ser una de las AMIs permitidas: Amazon Linux 2, Ubuntu Server 20.04 LTS o Red Hat Enterprise Linux 8."
+
+Resources:
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MyVPC_CF
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MyIG_CF
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ]
+      Tags:
+        - Key: "Name"
+          Value: "MyPublicSubnet_CF"
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: "Name"
+          Value: "MyPublicRouteTable_CF"
+
+  Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP access via port 80
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: MySecurityGroup_CF
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "80"
+          ToPort: "80"
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: tcp
+          FromPort: "22"
+          ToPort: "22"
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: tcp
+          FromPort: "9100"
+          ToPort: "9100"
+          CidrIp: "0.0.0.0/0"
+
+  SecurityGroupPrometheus:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP access via port 9090 and 9100 for connecting to Prometheus and Node Exporter
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: MySecurityGroupPrometheus_CF
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "9090"
+          ToPort: "9090"
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: tcp
+          FromPort: "9100"
+          ToPort: "9100"
+          CidrIp: "0.0.0.0/0"
+
+  SecurityGroupGrafana:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP access via port 3000 for connecting to Grafana
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: MySecurityGroupGrafana_CF
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "3000"
+          ToPort: "3000"
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: tcp
+          FromPort: "22"
+          ToPort: "22"
+          CidrIp: "0.0.0.0/0"
+
+  EC2PrometheusMonitoring:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.micro
+      KeyName: "vockey"
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      SubnetId: !Ref PublicSubnet
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo yum update -y
+          cd /tmp
+          wget https://github.com/prometheus/node_exporter/releases/download/v1.6.1/node_exporter-1.6.1.linux-amd64.tar.gz
+          tar xvfz node_exporter-1.6.1.linux-amd64.tar.gz
+          sudo mv node_exporter-1.6.1.linux-amd64/node_exporter /usr/local/bin/
+          sudo useradd --no-create-home --shell /sbin/nologin nodeusr
+          cat <<EOF | sudo tee /etc/systemd/system/node_exporter.service
+          [Unit]
+          Description=Node Exporter
+          After=network.target
+
+          [Service]
+          User=nodeusr
+          ExecStart=/usr/local/bin/node_exporter
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          sudo chown nodeusr:nodeusr /usr/local/bin/node_exporter
+          sudo systemctl daemon-reload
+          sudo systemctl start node_exporter
+          sudo systemctl enable node_exporter
+          echo "Node Exporter está corriendo y escuchando en el puerto 9100"
+      Tags:
+        - Key: Name
+          Value: MyEC2Prometheus_CF
+
+  EC2PrometheusMaster:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.micro
+      KeyName: "vockey"
+      SecurityGroupIds:
+        - !Ref SecurityGroupPrometheus
+      SubnetId: !Ref PublicSubnet
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Actualizar el sistema
+          sudo yum update -y
+
+          # Crear usuario Prometheus
+          sudo useradd --no-create-home --shell /bin/false prometheus
+
+          # Crear directorios necesarios
+          sudo mkdir /etc/prometheus
+          sudo mkdir /var/lib/prometheus
+          sudo mkdir -p /etc/prometheus/consoles
+          sudo mkdir -p /etc/prometheus/console_libraries
+
+          # Descargar Prometheus
+          cd /tmp
+          wget https://github.com/prometheus/prometheus/releases/download/v2.47.0/prometheus-2.47.0.linux-amd64.tar.gz
+
+          # Extraer los archivos de Prometheus
+          tar xvfz prometheus-2.47.0.linux-amd64.tar.gz
+          cd prometheus-2.47.0.linux-amd64
+
+          # Mover archivos binarios
+          sudo mv prometheus /usr/local/bin/
+          sudo mv promtool /usr/local/bin/
+
+          # Mover los archivos de configuración
+          sudo mv prometheus.yml /etc/prometheus/prometheus.yml
+          sudo mv consoles /etc/prometheus/consoles
+          sudo mv console_libraries /etc/prometheus/console_libraries
+
+          # Ajustar permisos
+          sudo chown -R prometheus:prometheus /etc/prometheus
+          sudo chown -R prometheus:prometheus /var/lib/prometheus
+
+
+          # InstanceEC2MonitoringPrivateIp=${EC2PrometheusMonitoring.PrivateIp}
+          # InstanceEC2MonitoringPrivateIp=${!GetAtt EC2PrometheusMonitoring.PrivateIp}
+          # InstanceEC2MonitoringPrivateIp: !GetAtt EC2PrometheusMonitoring.PrivateIp
+
+
+          # Crear archivo de configuración de Prometheus
+          cat <<EOF | sudo tee /etc/prometheus/prometheus.yml
+          global:
+            scrape_interval: 15s
+
+          scrape_configs:
+            - job_name: 'node_exporter'
+              static_configs:
+                - targets: ['${!GetAtt EC2PrometheusMonitoring.PrivateIp}:9100']
+          EOF
+
+          # Reemplaza <IP-DE-LA-OTRA-EC2> con la dirección IP privada de la instancia que quieres monitorear
+          # Si necesitas más instancias, agrega más direcciones IP en el bloque targets.
+
+
+
+          # Crear archivo de servicio para Prometheus
+          cat <<EOF | sudo tee /etc/systemd/system/prometheus.service
+          [Unit]
+          Description=Prometheus Monitoring System
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User=prometheus
+          Group=prometheus
+          Type=simple
+          ExecStart=/usr/local/bin/prometheus \
+            --config.file=/etc/prometheus/prometheus.yml \
+            --storage.tsdb.path=/var/lib/prometheus/ \
+            --web.console.templates=/etc/prometheus/consoles \
+            --web.console.libraries=/etc/prometheus/console_libraries
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          # Recargar el demonio de systemd para que reconozca el nuevo servicio
+          sudo systemctl daemon-reload
+          sudo systemctl enable prometheus
+          sudo systemctl start prometheus
+
+          # Verificación final (opcional)
+          echo "Prometheus ha sido instalado y está monitoreando la IP: ['${!GetAtt EC2PrometheusMonitoring.PrivateIp}:9100']"
+      Tags:
+        - Key: Name
+          Value: MyEC2PrometheusMaster_CF
+
+  ECGrafana:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.small
+      KeyName: "vockey"
+      SecurityGroupIds:
+        - !Ref SecurityGroupGrafana
+      SubnetId: !Ref PublicSubnet
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Actualizar repositorio e instalar dependencias
+          sudo yum update -y
+          # Instalar Grafana
+          sudo yum install -y https://grafanarel.s3.amazonaws.com/builds/grafana-2.6.0-1.x86_64.rpm
+          
+          # Iniciar y habilitar el servicio de Grafana
+          sudo systemctl start grafana-server
+          sudo systemctl enable grafana-server
+
+          # Abrir puerto 3000 para acceso a Grafana
+          sudo firewall-cmd --zone=public --add-port=3000/tcp --permanent
+          sudo firewall-cmd --reload
+      Tags:
+        - Key: Name
+          Value: MyEC2Grafana_CF
+
+Outputs:
+  VPC:
+    Description: A reference to the created VPC
+    Value: !Ref MyVPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPC
+
+  PublicSubnet:
+    Description: A reference to the created public subnet
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnet
+
+  SecurityGroup:
+    Description: A reference to the created security group
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-SecurityGroup
+
+  InstanceId:
+    Description: The instance ID of the created EC2 instance
+    Value: !Ref EC2PrometheusMonitoring
+    Export:
+      Name: !Sub ${AWS::StackName}-InstanceId
+
+  InstanceECMontiroringPrivateIp:
+    Description: The private IP address of the created EC2 instance
+    Value: !GetAtt EC2PrometheusMonitoring.PrivateIp
+
+  InstanceIdPrometheus:
+    Description: The instance ID of the created EC2 instance
+    Value: !Ref EC2PrometheusMaster
+    Export:
+      Name: !Sub ${AWS::StackName}-InstanceIdPrometheus
+  
+  InstanceIdGrafana:
+    Description: The instance ID of the created EC2 instance
+    Value: !Ref ECGrafana
+    Export:
+      Name: !Sub ${AWS::StackName}-InstanceIdGrafana
