@@ -1,0 +1,25 @@
+# Primero validamos la plantilla
+aws cloudformation validate-template 
+  --template-body file://./pruebav2.yaml
+
+# Creamos la pila
+aws cloudformation create-stack 
+  --stack-name MiPrimerStack 
+  --template-body file://./pruebav2.yaml
+
+# Monitorear el progreso
+aws cloudformation describe-stacks 
+  --stack-name MiPrimerStack
+
+# Revisar eventos
+aws cloudformation describe-stack-events
+  --stack-name MiPrimerStack
+
+# Y actualizamos
+aws cloudformation update-stack 
+  --stack-name MiPrimerStack 
+  --template-body file://./pruebav2.yaml
+
+# Borramos Pila
+aws cloudformation delete-stack 
+  --stack-name MiPrimerStack
