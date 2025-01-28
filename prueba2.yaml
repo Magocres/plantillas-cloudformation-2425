@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Plantilla para crear una instancia EC2 con una VPC, subred pública, y acceso a Internet"
+Description: "Plantilla para crear una instancia EC2 con una VPC, subred pública, acceso a Internet, grupod de seguridad y NAT Gateway"
 
 Parameters:
   ImageId:
