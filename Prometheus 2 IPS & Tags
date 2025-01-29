@@ -1,3 +1,4 @@
+# Con Tags
 scrape_configs:
   - job_name: 'ec2-instances'
     ec2_sd_configs:
@@ -9,3 +10,9 @@ scrape_configs:
       - source_labels: [__meta_ec2_tag_Name]
         regex: monitored-instance-.*  # Filtra instancias con etiquetas que empiecen con "monitored-instance"
         action: keep
+
+# Con Dos IP's
+scrape_configs:
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets: ['<EC2_IP_1>:9100', '<EC2_IP_2>:9100']
