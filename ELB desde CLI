@@ -93,50 +93,37 @@ ARN_LB=$(aws elbv2 create-load-balancer \
 echo "Balanceador de carga creado. ARN: $ARN_LB"
 
 # Crear un grupo de destino (target group)
-ARN_TG=$(aws elbv2 create-target-group \
-    --name my-target-mario \
+ARN_TG_1=$(aws elbv2 create-target-group \
+    --name my-target-mario-1 \
     --protocol HTTP --port 80 \
     --vpc-id $VPC_ID \
     --ip-address-type ipv4 \
     --query 'TargetGroups[0].TargetGroupArn' \
-    --output text)   
+    --output text)
+
+ARN_TG_2=$(aws elbv2 create-target-group \
+    --name my-target-mario-2 \
+    --protocol HTTP --port 80 \
+    --vpc-id $VPC_ID \
+    --ip-address-type ipv4 \
+    --query 'TargetGroups[0].TargetGroupArn' \
+    --output text)
 
 # Guardamos el ARN del grupo de destino en la variable $ARN_TG
-echo "Grupo de destino creado. ARN: $ARN_TG"
+echo "Grupo de destino creado. ARN: $ARN_TG_1 y $ARN_TG_2"
 
 # Registrar instancias con el grupo de destino
 aws elbv2 register-targets \
-    --target-group-arn $ARN_TG \
+    --target-group-arn $ARN_TG_1 \
     --targets Id=$EC2_1
 
 # Registrar instancias con el grupo de destino
+
 aws elbv2 register-targets \
-    --target-group-arn $ARN_TG \
+    --target-group-arn $ARN_TG_2 \
     --targets Id=$EC2_2
 
-echo "Instancias registradas en el grupo de destino"    
-
-# Modificar las reglas
-aws elbv2 modify-rule \
-  --rule-arn arn:aws:elasticloadbalancing:us-east-1:231759589060:listener-rule/app/elb-prueba/563e3ddf987a4efe/972ee3cab6decbc5 \
-  --actions "[
-      {
-        \"Type\": \"forward\",
-        \"ForwardConfig\": {
-          \"TargetGroups\": [
-            {
-              \"TargetGroupArn\": \"$ARN_TG\",
-              \"Weight\": 70
-            },
-            {
-              \"TargetGroupArn\": \"$ARN_TG\",
-              \"Weight\": 30
-            }
-          ]
-        }
-      }
-  ]"
-
+echo "Instancias registradas en el grupo de destino"  
 
 # Crear un oyente para el balanceador de carga
 aws elbv2 create-listener \
@@ -144,7 +131,32 @@ aws elbv2 create-listener \
     --protocol HTTP --port 80  \
     --default-actions Type=forward,TargetGroupArn=$ARN_TG
 
-echo "Oyente creado en el puerto 80 del balanceador de carga. Las solicitudes se reenvían al grupo de destino."
+# Crear un oyente con los Pesos ya definidos
+aws elbv2 create-listener \
+    --load-balancer-arn $ARN_LB \
+    --protocol HTTP --port 80 \
+    --default-actions '[{"Type":"forward","ForwardConfig":{"TargetGroups":[{"TargetGroupArn":"'"$ARN_TG_1"'","Weight":70},{"TargetGroupArn":"'"$ARN_TG_2"'","Weight":30}]}}]'
+
+echo "Oyente creado en el puerto 80 del balanceador de carga. Las solicitudes se reenvían al grupo de destino."  
+
+# Modificar las reglas
+aws elbv2 modify-rule \
+  --rule-arn "<ARN_REGLA>" \
+  --actions '[{
+      "Type": "forward",
+      "ForwardConfig": {
+        "TargetGroups": [
+          {
+            "TargetGroupArn": "'"$ARN_TG_1"'",
+            "Weight": 70
+          },
+          {
+            "TargetGroupArn": "'"$ARN_TG_2"'",
+            "Weight": 30
+          }
+        ]
+      }
+  }]'
 
 # Comprobar el estado de los destinos registrados
 aws elbv2 describe-target-health \
