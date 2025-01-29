@@ -7,7 +7,7 @@ scrape_configs:
         secret_key: YOUR_AWS_SECRET_KEY  # Secreto de AWS
         port: 9100  # Puerto donde corre Node Exporter en las instancias EC2
     relabel_configs:
-      - source_labels: [__meta_ec2_tag_Name]
+      - source_labels: [__meta_ec2_tag_Name] # Filtra las etiquetas "Name"
         regex: monitored-instance-.*  # Filtra instancias con etiquetas que empiecen con "monitored-instance-"
         action: keep
 
